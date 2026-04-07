@@ -1,0 +1,465 @@
+{
+  "info": {
+    "name": "Customer Support API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Full demo flow: User opens ticket → Operator logs in → Operator takes ticket → Both chat over WebSocket.\n\nAll tokens and IDs are captured automatically — just run requests top to bottom."
+  },
+  "item": [
+    {
+      "name": "1 · Auth",
+      "item": [
+        {
+          "name": "Login as User (miha)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Login succeeded', () => pm.response.to.have.status(200));",
+                  "",
+                  "const payload = JSON.parse(atob(resp.token.split('.')[1]));",
+                  "pm.environment.set('user_token', resp.token);",
+                  "pm.environment.set('user_id', payload.sub);",
+                  "",
+                  "console.log('user_id =', payload.sub);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"miha@example.com\",\n  \"password\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Logs in as a USER. Automatically stores `user_token` and `user_id` in the environment."
+          }
+        },
+        {
+          "name": "Login as Operator (tone)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Login succeeded', () => pm.response.to.have.status(200));",
+                  "",
+                  "const payload = JSON.parse(atob(resp.token.split('.')[1]));",
+                  "pm.environment.set('operator_token', resp.token);",
+                  "pm.environment.set('operator_id', payload.sub);",
+                  "",
+                  "console.log('operator_id =', payload.sub);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"tone@example.com\",\n  \"password\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Logs in as an OPERATOR. Automatically stores `operator_token` and `operator_id` in the environment."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 · Tickets (User)",
+      "item": [
+        {
+          "name": "Open Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Ticket created', () => pm.response.to.have.status(201));",
+                  "pm.test('Status is WAITING', () => pm.expect(resp.status).to.eql('WAITING'));",
+                  "",
+                  "pm.environment.set('ticket_id', resp.id);",
+                  "console.log('ticket_id =', resp.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{user_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": 1,\n  \"initialMessage\": \"My internet is down, please help!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/ticket/new",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "new"]
+            },
+            "description": "Opens a new ticket as the user. Automatically stores `ticket_id` in the environment.\n\nRooms (seeded):\n- 1 = Tehnika (Technical)\n- 2 = Storitve (Services)\n- 3 = Pogovor (Chat)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 · Tickets (Operator)",
+      "item": [
+        {
+          "name": "View All Tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Got ticket list', () => pm.response.to.have.status(200));",
+                  "",
+                  "const tickets = pm.response.json();",
+                  "const waiting = tickets.filter(t => t.status === 'WAITING');",
+                  "console.log(`Total: ${tickets.length}, Waiting: ${waiting.length}`);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/all",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "all"],
+              "query": [
+                { "key": "status", "value": "WAITING", "disabled": true, "description": "Filter by status: WAITING, ACTIVE, CLOSED. Omit to return all." },
+                { "key": "sort", "value": "updatedAt", "disabled": true, "description": "Sort field: updatedAt (default) or createdAt" },
+                { "key": "order", "value": "desc", "disabled": true, "description": "Sort direction: desc (default) or asc" }
+              ]
+            },
+            "description": "Returns all tickets. OPERATOR role required.\n\nQuery params (all optional):\n- `status` — WAITING, ACTIVE, or CLOSED. Omit to return all.\n- `sort` — `updatedAt` (default) or `createdAt`\n- `order` — `desc` (default) or `asc`\n\nEnable the params in Postman to filter and sort. They are disabled by default so the demo flow shows all tickets."
+          }
+        },
+        {
+          "name": "Get Ticket by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Got ticket', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/{{ticket_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "{{ticket_id}}"]
+            },
+            "description": "Fetch a single ticket by ID. Uses `ticket_id` captured from the Open Ticket step."
+          }
+        },
+        {
+          "name": "Take Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Ticket taken', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is ACTIVE', () => pm.expect(resp.status).to.eql('ACTIVE'));",
+                  "pm.test('Operator assigned', () => pm.expect(resp.operatorId).to.not.be.null);",
+                  "",
+                  "console.log('Ticket is now ACTIVE, operatorId =', resp.operatorId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/ticket/{{ticket_id}}/take",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "{{ticket_id}}", "take"]
+            },
+            "description": "Operator claims the ticket. Transitions status WAITING → ACTIVE. Operator ID is read from the JWT, not the request body."
+          }
+        },
+        {
+          "name": "Close Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Ticket closed', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is CLOSED', () => pm.expect(resp.status).to.eql('CLOSED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/ticket/{{ticket_id}}/close",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "{{ticket_id}}", "close"]
+            },
+            "description": "Closes the ACTIVE ticket. Only the operator who took the ticket can close it. Transitions status ACTIVE → CLOSED.\n\nNote: Close and Archive (below) are mutually exclusive — run only one per demo flow."
+          }
+        },
+        {
+          "name": "Archive Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const resp = pm.response.json();",
+                  "pm.test('Ticket archived', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is ARCHIVED', () => pm.expect(resp.status).to.eql('ARCHIVED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/ticket/{{ticket_id}}/archive",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "{{ticket_id}}", "archive"]
+            },
+            "description": "Moves a CLOSED ticket to ARCHIVED status, hiding it from the active queue. Run this after Close Ticket above — archive requires the ticket to already be CLOSED. Only the operator who closed the ticket can archive it."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 · WebSocket Chat",
+      "description": "WebSocket connections cannot be sent as REST requests.\n\n**How to connect in Postman:**\n1. Press **New → WebSocket**\n2. Enter the URL from the request below\n3. Click the **Headers** tab (next to Params, below the URL bar)\n4. Add a new row: Key = `Authorization`, Value = `Bearer <paste token here>`\n5. Click **Connect** — the JWT is validated during the HTTP upgrade handshake\n6. On success, message history is pushed immediately, then send plain text to chat\n\n**Browser clients** cannot set custom headers on WebSocket connections (platform limitation). Use the query param instead: `ws://localhost:8080/chat/{ticketId}?token=<jwt>` — the server accepts both.\n\nAll connections are rejected if the user is not the ticket creator or the assigned operator. The server closes all open sessions automatically when a ticket is CLOSED or ARCHIVED.",
+      "item": [
+        {
+          "name": "User connects to chat",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{user_token}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{ws_url}}/chat/{{ticket_id}}",
+              "host": ["{{ws_url}}"],
+              "path": ["chat", "{{ticket_id}}"]
+            },
+            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket).\n\nIn the **Headers** tab add:\n  Key:   Authorization\n  Value: Bearer <paste user_token here>\n\nAlternatively via query param (for browser clients):\n  ws://localhost:8080/chat/{{ticket_id}}?token=<jwt>\n\nThe server validates the JWT during the HTTP upgrade and checks that this user is the ticket creator. Rejected connections receive an immediate close frame."
+          }
+        },
+        {
+          "name": "Operator connects to chat",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{operator_token}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{ws_url}}/chat/{{ticket_id}}",
+              "host": ["{{ws_url}}"],
+              "path": ["chat", "{{ticket_id}}"]
+            },
+            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket) in a separate tab.\n\nIn the **Headers** tab add:\n  Key:   Authorization\n  Value: Bearer <paste operator_token here>\n\nAlternatively via query param (for browser clients):\n  ws://localhost:8080/chat/{{ticket_id}}?token=<jwt>\n\nThe operator must have taken the ticket first — verifyAccess checks that the connecting user is either the ticket creator or the assigned operator. A WAITING ticket has no operator assigned yet and will reject any operator connection.\n\nWhen the ticket is closed or archived, the server drops all open sessions for that ticket automatically."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 · Error cases",
+      "item": [
+        {
+          "name": "Take ticket twice (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 400 on double-take', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/ticket/{{ticket_id}}/take",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "{{ticket_id}}", "take"]
+            },
+            "description": "Attempting to take an already-ACTIVE ticket returns 400 BadRequest: 'Ticket is already taken'."
+          }
+        },
+        {
+          "name": "Get ticket without auth (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 401 without token', () => pm.response.to.have.status(401));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/all",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "all"]
+            },
+            "description": "Calling an operator-only endpoint without a token returns 401."
+          }
+        },
+        {
+          "name": "Operator endpoint with user token (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 403 for wrong role', () => pm.response.to.have.status(403));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{user_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/all",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "all"]
+            },
+            "description": "Calling an OPERATOR-only endpoint with a USER token returns 403 Forbidden."
+          }
+        },
+        {
+          "name": "Invalid sort field (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 400 for invalid sort', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/all?sort=badField",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "all"],
+              "query": [{ "key": "sort", "value": "badField" }]
+            },
+            "description": "Passing an unsupported sort field returns 400 BadRequest."
+          }
+        },
+        {
+          "name": "Get non-existent ticket (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 404 for missing ticket', () => pm.response.to.have.status(404));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ticket/99999",
+              "host": ["{{base_url}}"],
+              "path": ["ticket", "99999"]
+            },
+            "description": "Requesting a ticket ID that does not exist returns 404 NotFoundException."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}
