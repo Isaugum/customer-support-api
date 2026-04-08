@@ -102,6 +102,8 @@ Steps 6 and 7 are mutually exclusive — run only one per flow.
 
 ### WebSocket flow (section 4)
 
+> **Important:** To test WebSocket flow, target ticket MUST have status `ACTIVE`: otherways, the application will refuse connection.
+
 WebSocket requests cannot be included in the collection runner — they must be opened manually as tabs. The requests in section 4 have the correct URL pre-filled; Postman sends the `jwt` cookie automatically at connect time.
 
 Follow this order to have both participants connected simultaneously:
