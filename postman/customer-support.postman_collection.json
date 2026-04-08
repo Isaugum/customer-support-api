@@ -2,7 +2,7 @@
   "info": {
     "name": "Customer Support API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Full demo flow: User opens ticket → Operator logs in → Operator takes ticket → Both chat over WebSocket.\n\nAll tokens and IDs are captured automatically — just run requests top to bottom."
+    "description": "Full demo flow: User opens ticket → Operator logs in → Operator takes ticket → Both chat over WebSocket.\n\nAuth is handled via HttpOnly cookies — Postman's cookie jar picks them up automatically. Run requests top to bottom."
   },
   "item": [
     {
@@ -15,11 +15,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "const resp = pm.response.json();",
                   "pm.test('Login succeeded', () => pm.response.to.have.status(200));",
                   "",
-                  "const payload = JSON.parse(atob(resp.token.split('.')[1]));",
-                  "pm.environment.set('user_token', resp.token);",
+                  "const cookie = pm.cookies.get('jwt');",
+                  "const payload = JSON.parse(atob(cookie.split('.')[1]));",
                   "pm.environment.set('user_id', payload.sub);",
                   "",
                   "console.log('user_id =', payload.sub);"
@@ -42,7 +41,30 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "login"]
             },
-            "description": "Logs in as a USER. Automatically stores `user_token` and `user_id` in the environment."
+            "description": "Logs in as a USER. Sets the `jwt` HttpOnly cookie automatically. Captures `user_id` from the JWT payload."
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Logout succeeded', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Clears the `jwt` cookie."
           }
         },
         {
@@ -52,11 +74,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "const resp = pm.response.json();",
                   "pm.test('Login succeeded', () => pm.response.to.have.status(200));",
                   "",
-                  "const payload = JSON.parse(atob(resp.token.split('.')[1]));",
-                  "pm.environment.set('operator_token', resp.token);",
+                  "const cookie = pm.cookies.get('jwt');",
+                  "const payload = JSON.parse(atob(cookie.split('.')[1]));",
                   "pm.environment.set('operator_id', payload.sub);",
                   "",
                   "console.log('operator_id =', payload.sub);"
@@ -79,7 +100,7 @@
               "host": ["{{base_url}}"],
               "path": ["auth", "login"]
             },
-            "description": "Logs in as an OPERATOR. Automatically stores `operator_token` and `operator_id` in the environment."
+            "description": "Logs in as an OPERATOR, replacing the active session. Captures `operator_id` from the JWT payload."
           }
         }
       ]
@@ -106,10 +127,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{user_token}}", "type": "string" }]
-            },
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
@@ -123,7 +140,7 @@
               "host": ["{{base_url}}"],
               "path": ["ticket", "new"]
             },
-            "description": "Opens a new ticket as the user. Automatically stores `ticket_id` in the environment.\n\nRooms (seeded):\n- 1 = Tehnika (Technical)\n- 2 = Storitve (Services)\n- 3 = Pogovor (Chat)"
+            "description": "Opens a new ticket as the user. Automatically stores `ticket_id` in the environment.\n\nRequires being logged in as a USER (run 'Login as User' first).\n\nRooms (seeded):\n- 1 = Tehnika (Technical)\n- 2 = Storitve (Services)\n- 3 = Pogovor (Chat)"
           }
         }
       ]
@@ -149,10 +166,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/ticket/all",
@@ -164,7 +177,7 @@
                 { "key": "order", "value": "desc", "disabled": true, "description": "Sort direction: desc (default) or asc" }
               ]
             },
-            "description": "Returns all tickets. OPERATOR role required.\n\nQuery params (all optional):\n- `status` — WAITING, ACTIVE, or CLOSED. Omit to return all.\n- `sort` — `updatedAt` (default) or `createdAt`\n- `order` — `desc` (default) or `asc`\n\nEnable the params in Postman to filter and sort. They are disabled by default so the demo flow shows all tickets."
+            "description": "Returns all tickets. OPERATOR role required.\n\nQuery params (all optional):\n- `status` — WAITING, ACTIVE, or CLOSED. Omit to return all.\n- `sort` — `updatedAt` (default) or `createdAt`\n- `order` — `desc` (default) or `asc`"
           }
         },
         {
@@ -181,10 +194,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/ticket/{{ticket_id}}",
@@ -213,17 +222,13 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "POST",
             "url": {
               "raw": "{{base_url}}/ticket/{{ticket_id}}/take",
               "host": ["{{base_url}}"],
               "path": ["ticket", "{{ticket_id}}", "take"]
             },
-            "description": "Operator claims the ticket. Transitions status WAITING → ACTIVE. Operator ID is read from the JWT, not the request body."
+            "description": "Operator claims the ticket. Transitions status WAITING → ACTIVE. Operator ID is read from the JWT cookie."
           }
         },
         {
@@ -242,10 +247,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "POST",
             "url": {
               "raw": "{{base_url}}/ticket/{{ticket_id}}/close",
@@ -271,10 +272,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "POST",
             "url": {
               "raw": "{{base_url}}/ticket/{{ticket_id}}/archive",
@@ -288,36 +285,32 @@
     },
     {
       "name": "4 · WebSocket Chat",
-      "description": "WebSocket connections cannot be sent as REST requests.\n\n**How to connect in Postman:**\n1. Press **New → WebSocket**\n2. Enter the URL from the request below\n3. Click the **Headers** tab (next to Params, below the URL bar)\n4. Add a new row: Key = `Authorization`, Value = `Bearer <paste token here>`\n5. Click **Connect** — the JWT is validated during the HTTP upgrade handshake\n6. On success, message history is pushed immediately, then send plain text to chat\n\n**Browser clients** cannot set custom headers on WebSocket connections (platform limitation). Use the query param instead: `ws://localhost:8080/chat/{ticketId}?token=<jwt>` — the server accepts both.\n\nAll connections are rejected if the user is not the ticket creator or the assigned operator. The server closes all open sessions automatically when a ticket is CLOSED or ARCHIVED.",
+      "description": "WebSocket connections cannot be sent as REST requests.\n\n**How to connect in Postman:**\n1. Press **New → WebSocket**\n2. Enter the URL from the request below\n3. Click **Connect** — Postman sends the `jwt` cookie automatically during the HTTP upgrade handshake\n4. On success, message history is pushed immediately, then send plain text to chat\n\n**For the two-participant flow:**\n1. Ensure you are logged in as the user (run 'Login as User' in section 1), then open the user WebSocket tab and connect\n2. Then run 'Login as Operator' in section 3 to switch sessions, then open the operator WebSocket tab and connect\n3. Both connections stay open simultaneously — auth is checked once at connect time\n\nAll connections are rejected if the user is not the ticket creator or the assigned operator. The server closes all open sessions automatically when a ticket is CLOSED or ARCHIVED.",
       "item": [
         {
           "name": "User connects to chat",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{user_token}}", "type": "text" }
-            ],
+            "header": [],
             "url": {
               "raw": "{{ws_url}}/chat/{{ticket_id}}",
               "host": ["{{ws_url}}"],
               "path": ["chat", "{{ticket_id}}"]
             },
-            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket).\n\nIn the **Headers** tab add:\n  Key:   Authorization\n  Value: Bearer <paste user_token here>\n\nAlternatively via query param (for browser clients):\n  ws://localhost:8080/chat/{{ticket_id}}?token=<jwt>\n\nThe server validates the JWT during the HTTP upgrade and checks that this user is the ticket creator. Rejected connections receive an immediate close frame."
+            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket).\n\nMake sure you are logged in as the USER before connecting (run 'Login as User' first). Postman sends the `jwt` cookie automatically — no headers needed.\n\nThe server validates the cookie during the HTTP upgrade and checks that this user is the ticket creator. Rejected connections receive an immediate close frame."
           }
         },
         {
           "name": "Operator connects to chat",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{operator_token}}", "type": "text" }
-            ],
+            "header": [],
             "url": {
               "raw": "{{ws_url}}/chat/{{ticket_id}}",
               "host": ["{{ws_url}}"],
               "path": ["chat", "{{ticket_id}}"]
             },
-            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket) in a separate tab.\n\nIn the **Headers** tab add:\n  Key:   Authorization\n  Value: Bearer <paste operator_token here>\n\nAlternatively via query param (for browser clients):\n  ws://localhost:8080/chat/{{ticket_id}}?token=<jwt>\n\nThe operator must have taken the ticket first — verifyAccess checks that the connecting user is either the ticket creator or the assigned operator. A WAITING ticket has no operator assigned yet and will reject any operator connection.\n\nWhen the ticket is closed or archived, the server drops all open sessions for that ticket automatically."
+            "description": "▶ Open as a WebSocket request in Postman (New → WebSocket) in a separate tab.\n\nMake sure you are logged in as the OPERATOR before connecting (run 'Login as Operator' in section 3 first). Postman sends the `jwt` cookie automatically — no headers needed.\n\nThe operator must have taken the ticket first. When the ticket is closed or archived, the server drops all open sessions automatically."
           }
         }
       ]
@@ -339,10 +332,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "POST",
             "url": {
               "raw": "{{base_url}}/ticket/{{ticket_id}}/take",
@@ -373,7 +362,7 @@
               "host": ["{{base_url}}"],
               "path": ["ticket", "all"]
             },
-            "description": "Calling an operator-only endpoint without a token returns 401."
+            "description": "Calling an operator-only endpoint without a token returns 401.\n\nNote: Run this before logging in, or manually delete the `jwt` cookie from Postman's cookie jar first (top menu → Cookies)."
           }
         },
         {
@@ -390,17 +379,13 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{user_token}}", "type": "string" }]
-            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/ticket/all",
               "host": ["{{base_url}}"],
               "path": ["ticket", "all"]
             },
-            "description": "Calling an OPERATOR-only endpoint with a USER token returns 403 Forbidden."
+            "description": "Calling an OPERATOR-only endpoint while logged in as a USER returns 403 Forbidden.\n\nMake sure you are logged in as a user (run 'Login as User' in section 1) before running this."
           }
         },
         {
@@ -417,10 +402,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/ticket/all?sort=badField",
@@ -445,10 +426,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [{ "key": "token", "value": "{{operator_token}}", "type": "string" }]
-            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/ticket/99999",

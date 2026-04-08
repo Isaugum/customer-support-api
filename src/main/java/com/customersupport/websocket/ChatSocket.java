@@ -39,10 +39,7 @@ public class ChatSocket {
         String ticketIdStr = connection.pathParam("ticketId");
         Long ticketId = Long.parseLong(ticketIdStr);
 
-        String authHeader = connection.handshakeRequest().header("Authorization");
-        String rawToken = (authHeader != null && authHeader.startsWith("Bearer "))
-                ? authHeader.substring(7)
-                : extractQueryParam(connection.handshakeRequest().query(), "token");
+        String rawToken = extractCookie(connection.handshakeRequest().header("Cookie"), "jwt");
         if (rawToken == null || rawToken.isBlank()) {
             LOG.warnf("WebSocket connection without credentials for ticket %s — closing", ticketIdStr);
             connection.closeAndAwait();
@@ -103,14 +100,15 @@ public class ChatSocket {
         }
     }
 
-    private static String extractQueryParam(String query, String name) {
-        if (query == null || query.isBlank()) {
+    private static String extractCookie(String cookieHeader, String name) {
+        if (cookieHeader == null || cookieHeader.isBlank()) {
             return null;
         }
-        for (String pair : query.split("&")) {
-            int eq = pair.indexOf('=');
-            if (eq > 0 && pair.substring(0, eq).equals(name)) {
-                return pair.substring(eq + 1);
+        for (String part : cookieHeader.split(";")) {
+            String trimmed = part.trim();
+            int eq = trimmed.indexOf('=');
+            if (eq > 0 && trimmed.substring(0, eq).trim().equals(name)) {
+                return trimmed.substring(eq + 1).trim();
             }
         }
         return null;
